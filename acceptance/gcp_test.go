@@ -2,6 +2,7 @@ package acceptance
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"strings"
 
@@ -84,17 +85,42 @@ var _ = Describe("GCP", func() {
 	})
 
 	Describe("DeleteType", func() {
-		BeforeEach(func() {
-			filter = "lftvrs-acceptance-delete-type"
-			acc.InsertDisk(filter)
+		Context("when there is a single request", func() {
+			BeforeEach(func() {
+				filter = "lftvrs-acceptance-delete-type"
+				acc.InsertDisk(filter)
+			})
+
+			It("deletes resources with the filter", func() {
+				err := deleter.DeleteType(filter, "disk")
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(stdout.String()).To(ContainSubstring("[Disk: lftvrs-acceptance-delete-type] Deleting..."))
+				Expect(stdout.String()).To(ContainSubstring("[Disk: lftvrs-acceptance-delete-type] Deleted!"))
+			})
 		})
 
-		It("deletes resources with the filter", func() {
-			err := deleter.DeleteType(filter, "disk")
-			Expect(err).NotTo(HaveOccurred())
+		Context("when there are multiple requests to change a project iam policy", func() {
+			BeforeEach(func() {
+				filter = "lftvrs-acceptance"
+				acc.UpdateIamPolicy(fmt.Sprintf("%s-1", filter))
+				acc.UpdateIamPolicy(fmt.Sprintf("%s-2", filter))
+				acc.UpdateIamPolicy(fmt.Sprintf("%s-3", filter))
+			})
 
-			Expect(stdout.String()).To(ContainSubstring("[Disk: lftvrs-acceptance-delete-type] Deleting..."))
-			Expect(stdout.String()).To(ContainSubstring("[Disk: lftvrs-acceptance-delete-type] Deleted!"))
+			FIt("does not fail due to concurrency of leftovers requests", func() {
+				// Technically, there could be other people/tools making iam policy changes while leftovers is running.
+
+				err := deleter.DeleteType(filter, "service-account")
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(stdout.String()).To(ContainSubstring("[IAM Service Account: lftvrs-acceptance-1] Deleting..."))
+				Expect(stdout.String()).To(ContainSubstring("[IAM Service Account: lftvrs-acceptance-1] Deleted!"))
+				Expect(stdout.String()).To(ContainSubstring("[IAM Service Account: lftvrs-acceptance-2] Deleting..."))
+				Expect(stdout.String()).To(ContainSubstring("[IAM Service Account: lftvrs-acceptance-2] Deleted!"))
+				Expect(stdout.String()).To(ContainSubstring("[IAM Service Account: lftvrs-acceptance-3] Deleting..."))
+				Expect(stdout.String()).To(ContainSubstring("[IAM Service Account: lftvrs-acceptance-3] Deleted!"))
+			})
 		})
 	})
 })

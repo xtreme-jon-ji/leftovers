@@ -13,6 +13,7 @@ import (
 	gcpcompute "google.golang.org/api/compute/v1"
 
 	. "github.com/onsi/gomega"
+	gcpiam "google.golang.org/api/iam/v1"
 )
 
 type GCPAcceptance struct {
@@ -54,6 +55,7 @@ func (g GCPAcceptance) InsertDisk(name string) {
 	service, err := gcpcompute.New(config.Client(context.Background()))
 	Expect(err).NotTo(HaveOccurred())
 
+	// Check if the disk already exists from a previously failed run
 	list, err := service.Disks.List(g.ProjectId, g.Zone).Filter(fmt.Sprintf("name eq %s", name)).Do()
 	if len(list.Items) > 0 {
 		return
@@ -65,4 +67,31 @@ func (g GCPAcceptance) InsertDisk(name string) {
 
 	err = waiter.Wait()
 	Expect(err).NotTo(HaveOccurred())
+}
+
+func (g GCPAcceptance) UpdateIamPolicy(name string) {
+	config, err := google.JWTConfigFromJSON([]byte(g.Key), gcpcompute.CloudPlatformScope)
+	Expect(err).NotTo(HaveOccurred())
+
+	iamService, err := gcpiam.New(config.Client(context.Background()))
+	Expect(err).NotTo(HaveOccurred())
+
+	// Check if the service account already exists from a previously failed run
+	sa, err := iamService.Projects.ServiceAccounts.Get(name).Do()
+	if sa != nil {
+		return
+	}
+	Expect(err).NotTo(HaveOccurred())
+
+	sa = &gcpiam.ServiceAccount{DisplayName: name}
+	saRequest := &gcpiam.CreateServiceAccountRequest{
+		AccountId:      name,
+		ServiceAccount: sa,
+	}
+	serviceAccount, err := iamService.Projects.ServiceAccounts.Create("projects/"+g.ProjectId, saRequest).Do()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(serviceAccount.DisplayName).To(Equal(name))
+
+	// Add binding of service account to policy?
+	err := iamService.Projects.ServiceAccounts.AddIamPolicyBinding("projects/"+g.ProjectId, saRequest).Do()
 }
